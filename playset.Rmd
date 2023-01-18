@@ -1,0 +1,678 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r}
+
+
+
+#THIS IS THE ELLIPSE HULL PICTORAL REPRESENTATION - Shows a convex hull represnation of the data points as a point process plot
+#install.packages("spatstat")
+#install.packages("alphahull")
+#install.packages("ellipsis")
+#install.packages("cluster")
+#install.packages("fs")
+
+
+
+#Features.DataFrameCreation(
+folder_location_url = "D:/RCC Microarray Tissues/TCGA Tissues for Survival Prediction G2/LT"
+measurements.file.name= "LT Measurements"
+class_string = "LT"
+num_of_ellipses = 80
+
+name.of.df= "G2LT"
+
+
+```
+
+
+```{r}
+
+
+#Features.DataFrameCreation(
+folder_location_url = "D:/RCC Microarray Tissues/TCGA Tissues for Survival Prediction G2/LT"
+measurements.file.name= "LT Measurements"
+class_string = "LT"
+num_of_ellipses = 1
+
+name.of.df= "G2LT"
+
+
+
+#Features.DataFrameCreation <- function(folder_location_url, measurements.file.name,class_string,num_of_ellipses){
+library(spatstat)
+library(alphahull)
+library(ellipsis)
+library(alphahull)
+library(cluster)
+  library(xgboost)
+
+annotationppp <- function(dataf, dataname){
+  
+#Takes the x and y coordinates and creates a convex hull depiction of the points
+  W <- convexhull.xy(as.numeric(dataf$Centroid.X.µm),as.numeric(dataf$Centroid.Y.µm))
+
+  
+
+#The Measuements data from qupath gets converted into a dataframe of x,y coordinates and cellular info as marked info
+annotationMarks = data.frame(
+image = dataf$Image,
+xcentroid = dataf$Centroid.X.µm,
+ycentroid = dataf$Centroid.Y.µm,
+ parent = dataf$Parent,
+ nucleusArea = dataf$Nucleus..Area,
+ nuclesPerimeter = dataf$Nucleus..Perimeter,
+ nucleusCircularity = dataf$Nucleus..Circularity,
+ nucleusMax_Caliper = dataf$Nucleus..Max.caliper,
+ nucleusMin_Caliper = dataf$Nucleus..Min.caliper,
+ nucleusEccentricity = dataf$Nucleus..Eccentricity,
+ nucleusHemOD_Mean = dataf$Nucleus..Hematoxylin.OD.mean,
+ nucleusHemOD_Sum = dataf$Nucleus..Hematoxylin.OD.sum,
+ nucleusHemOD_stDV = dataf$Nucleus..Hematoxylin.OD.std.dev,
+ nucleusHemOD_Max = dataf$Nucleus..Hematoxylin.OD.max,
+ nucleusHemOD_Min = dataf$Nucleus..Hematoxylin.OD.min,
+ nucleusHemOD_Range = dataf$Nucleus..Hematoxylin.OD.range,
+ cellArea = dataf$Cell..Area,
+ cellPerimeter= dataf$Cell..Perimeter,
+ cellCircularity = dataf$Cell..Circularity,
+ cellMax_Caliper = dataf$Cell..Max.caliper,
+ cellMin_Caliper = dataf$Cell..Min.caliper,
+ cellEccentricity = dataf$Cell..Eccentricity,
+ cellHemOD_Mean = dataf$Cell..Hematoxylin.OD.mean,
+ cellHemOD_stDV = dataf$Cell..Hematoxylin.OD.std.dev,
+ cellHemOD_Max = dataf$Cell..Hematoxylin.OD.max,
+ cellHemOD_Min = dataf$Cell..Hematoxylin.OD.min,
+ cytoplasmHemOD_Mean = dataf$Cytoplasm..Hematoxylin.OD.mean,
+ cytoplasmHemOD_stDV = dataf$Cytoplasm..Hematoxylin.OD.std.dev,
+ cytoplasmHemOD_Max = dataf$Cytoplasm..Hematoxylin.OD.max,
+ cytoplasmHemOD_Min = dataf$Cytoplasm..Hematoxylin.OD.min,
+ nucleusCell_Ratio = dataf$Nucleus.Cell.area.ratio)
+ 
+#convert convex hull into a point process
+X <- ppp(as.numeric(dataf$Centroid.X.µm),as.numeric(dataf$Centroid.Y.µm),window = W, marks = annotationMarks)
+if(area(X$window)>2000000){
+  dataf <- dataf %>% 
+                filter(Centroid.X.µm < max(Centroid.X.µm-1000)&Centroid.X.µm>min(Centroid.X.µm)+1000)
+}
+X <- ppp(as.numeric(dataf$Centroid.X.µm),as.numeric(dataf$Centroid.Y.µm),window = W, marks = annotationMarks)
+
+plot.ppp(X, main = deparse(substitute(dataf)), use.marks = FALSE)
+#saves convex hull ppp into a designated folder, which we will call in the spatial dataframe creation function
+saveRDS(X, file = dataname)
+return(X)
+}
+#_________________________________________________________________________________________________________________________
+url <- folder_location_url
+
+setwd(url)
+
+dir.create("TempRDSfile")
+
+
+x <- paste(folder_location_url,"/",measurements.file.name,"/",sep="")
+setwd(x)
+epithelioidList <- list.files(path = paste(folder_location_url,"/",measurements.file.name,"/",sep =""))
+epithelioidList <- epithelioidList[1:num_of_ellipses]
+
+path = paste(url,"/","TempRDSfile","/",sep="")
+
+
+for (i in epithelioidList){
+name = paste(path,i,".ppp", sep = '' )
+epithelioidStarppp <- read.delim(i)
+annotationppp(epithelioidStarppp, name)
+
+# Saves point pattern to "tempfileRDS" folder
+
+}
+
+
+
+RDSFiles <- list.files(paste(url,"/", "TempRDSfile","/",sep = ""))
+
+url2<- paste(url,"/", "TempRDSfile", "/", sep = "")
+
+setwd(url2)
+
+#Remember, E star Train/E train meanS Testing dataset
+#RDSFiles is our Training Dataset
+
+nndisttot1 <- c()
+weighted_intensity1<- c()
+nucleasArea1 <- c()
+nucleusCircularity1 <- c()
+nucleusEccentricity1 <- c()
+hopskel1 <- c()
+nnmean1 <-c()
+nnvario1 <- c()
+nncorr1 <- c()
+pcf_vals1 <- c()
+pcf_auc1 <- c()
+mark_corr_vals1 <- c()
+nucleusMinCaliper1<-c()
+nucleusMaxCaliper1 <- c()
+Emark_vals1<- c()
+for(i in 1:length(RDSFiles)){
+setwd(url2)
+epitheliod <- as.ppp(readRDS(RDSFiles[67]))
+#plot(unmark(epitheliod))
+#nndisttot1 <- c(nndisttot1, nndist(epitheliod))
+#weighted_intensity1 <- c(weighted_intensity1, intensity(epitheliod,weights = marks(epitheliod)$nucleusArea))
+#nucleasArea1 <- c(nucleasArea1, epitheliod$marks$nucleusArea)
+#nucleusCircularity1 <- c(nucleusCircularity1, epitheliod$marks$nucleusCircularity)
+#nucleusEccentricity1 <- c(nucleusEccentricity1, epitheliod$marks$nucleusEccentricity)
+#nucleusMinCaliper1 <- c(nucleusMinCaliper1, epitheliod$marks$nucleusMin_Caliper)
+#nucleusMaxCaliper1 <- c(nucleusMaxCaliper1, epitheliod$marks$nucleusMax_Caliper)
+
+#hopskel1 <- c(hopskel1, hopskel(epitheliod))
+#epitheliod$marks <- epitheliod$marks$nucleusCircularity
+#nnmean1 <- rbind(nnmean1,nnmean(epitheliod)[2,c(5,6,7,8,9,10)]) 
+#nnvario1 <- rbind(nnvario1,nnvario(epitheliod)[2,c(5,6,7,8,9,10)])
+#nncorr1 <- rbind(nncorr1, nncorr(epitheliod)[3])
+#a <- pcf(epitheliod,r = seq(0,50))
+#a$iso[1] <-0 
+#pcf_vals1 <- rbind(pcf_vals1,a$iso) 
+#b <- markcorr(subset(epitheliod,select = "nucleusArea"),r=0:25)$iso
+#mark_corr_vals1 <- rbind(mark_corr_vals1,b) 
+c <- Emark(subset(epitheliod,select = "nucleusArea"),r=0:25)$iso
+Emark_vals1 <- rbind(Emark_vals1,c) 
+
+}
+epitheliod
+
+pcf_vals1 <- as.data.frame(pcf_vals1)
+#________________________________________________
+dim(Emark_vals1)
+plot(c)
+```
+
+```{r}
+
+folder_location_url = "D:/RCC Microarray Tissues/TCGA Tissues for Survival Prediction G2/ST"
+measurements.file.name= "ST Measurements"
+class_string = "ST"
+num_of_ellipses = 1
+
+name.of.df= "G2ST"
+
+#Features.DataFrameCreation <- function(folder_location_url, measurements.file.name,class_string,num_of_ellipses){
+library(spatstat)
+library(alphahull)
+library(ellipsis)
+library(alphahull)
+library(cluster)
+  library(xgboost)
+
+annotationppp <- function(dataf, dataname){
+  
+#Takes the x and y coordinates and creates a convex hull depiction of the points
+
+  W <- convexhull.xy(as.numeric(dataf$Centroid.X.µm),as.numeric(dataf$Centroid.Y.µm))
+
+
+#The Measuements data from qupath gets converted into a dataframe of x,y coordinates and cellular info as marked info
+annotationMarks = data.frame(
+image = dataf$Image,
+xcentroid = dataf$Centroid.X.µm,
+ycentroid = dataf$Centroid.Y.µm,
+ parent = dataf$Parent,
+ nucleusArea = dataf$Nucleus..Area,
+ nuclesPerimeter = dataf$Nucleus..Perimeter,
+ nucleusCircularity = dataf$Nucleus..Circularity,
+ nucleusMax_Caliper = dataf$Nucleus..Max.caliper,
+ nucleusMin_Caliper = dataf$Nucleus..Min.caliper,
+ nucleusEccentricity = dataf$Nucleus..Eccentricity,
+ nucleusHemOD_Mean = dataf$Nucleus..Hematoxylin.OD.mean,
+ nucleusHemOD_Sum = dataf$Nucleus..Hematoxylin.OD.sum,
+ nucleusHemOD_stDV = dataf$Nucleus..Hematoxylin.OD.std.dev,
+ nucleusHemOD_Max = dataf$Nucleus..Hematoxylin.OD.max,
+ nucleusHemOD_Min = dataf$Nucleus..Hematoxylin.OD.min,
+ nucleusHemOD_Range = dataf$Nucleus..Hematoxylin.OD.range,
+ cellArea = dataf$Cell..Area,
+ cellPerimeter= dataf$Cell..Perimeter,
+ cellCircularity = dataf$Cell..Circularity,
+ cellMax_Caliper = dataf$Cell..Max.caliper,
+ cellMin_Caliper = dataf$Cell..Min.caliper,
+ cellEccentricity = dataf$Cell..Eccentricity,
+ cellHemOD_Mean = dataf$Cell..Hematoxylin.OD.mean,
+ cellHemOD_stDV = dataf$Cell..Hematoxylin.OD.std.dev,
+ cellHemOD_Max = dataf$Cell..Hematoxylin.OD.max,
+ cellHemOD_Min = dataf$Cell..Hematoxylin.OD.min,
+ cytoplasmHemOD_Mean = dataf$Cytoplasm..Hematoxylin.OD.mean,
+ cytoplasmHemOD_stDV = dataf$Cytoplasm..Hematoxylin.OD.std.dev,
+ cytoplasmHemOD_Max = dataf$Cytoplasm..Hematoxylin.OD.max,
+ cytoplasmHemOD_Min = dataf$Cytoplasm..Hematoxylin.OD.min,
+ nucleusCell_Ratio = dataf$Nucleus.Cell.area.ratio)
+ 
+#convert convex hull into a point process
+X <- ppp(as.numeric(dataf$Centroid.X.µm),as.numeric(dataf$Centroid.Y.µm),window = W, marks = annotationMarks)
+plot.ppp(X, main = deparse(substitute(dataf)), use.marks = FALSE)
+#saves convex hull ppp into a designated folder, which we will call in the spatial dataframe creation function
+saveRDS(X, file = dataname)
+return(X)
+
+}
+
+#_________________________________________________________________________________________________________________________
+url <- folder_location_url
+
+setwd(url)
+
+dir.create("TempRDSfile")
+
+
+x <- paste(folder_location_url,"/",measurements.file.name,"/",sep="")
+setwd(x)
+epithelioidList <- list.files(path = paste(folder_location_url,"/",measurements.file.name,"/",sep =""))
+epithelioidList <- epithelioidList[1:num_of_ellipses]
+
+path = paste(url,"/","TempRDSfile","/",sep="")
+
+
+for (i in epithelioidList){
+name = paste(path,i,".ppp", sep = '' )
+epithelioidStarppp <- read.delim(i)
+annotationppp(epithelioidStarppp, name)
+
+# Saves point pattern to "tempfileRDS" folder
+
+}
+
+
+
+RDSFiles <- list.files(paste(url,"/", "TempRDSfile","/",sep = ""))
+
+url2<- paste(url,"/", "TempRDSfile", "/", sep = "")
+
+setwd(url2)
+
+#Remember, E star Train/E train meanS Testing dataset
+#RDSFiles is our Training Dataset
+
+nndisttot2 <- c()
+weighted_intensity2<- c()
+nucleasArea2 <- c()
+nucleusCircularity2 <- c()
+nucleusEccentricity2 <- c()
+hopskel2 <- c()
+#nnmean2 <-c()
+#nnvario2 <- c()
+#nncorr2 <- c()
+#pcf_auc2 <- c()
+pcf_vals2 <- c()
+markvario2 <- c() 
+mark_corr_vals2 <- c()
+Emark_vals2 <- c()
+nucleusMinCaliper2<-c()
+nucleusMaxCaliper2 <- c()
+
+for(i in 1:length(RDSFiles)){
+setwd(url2)
+
+epitheliod <- as.ppp(readRDS(RDSFiles[i]))
+#plot(unmark(epitheliod))
+nndisttot2 <- c(nndisttot2, nndist(epitheliod))
+weighted_intensity2 <- c(weighted_intensity2, intensity(epitheliod,weights = marks(epitheliod)$nucleusArea))
+nucleasArea2 <- c(nucleasArea2, epitheliod$marks$nucleusArea)
+nucleusCircularity2 <- c(nucleusCircularity2, epitheliod$marks$nucleusCircularity)
+nucleusMinCaliper2 <- c(nucleusMinCaliper2, epitheliod$marks$nucleusMin_Caliper)
+nucleusMaxCaliper2 <- c(nucleusMaxCaliper2, epitheliod$marks$nucleusMax_Caliper)
+
+nucleusEccentricity2 <- c(nucleusEccentricity2, epitheliod$marks$nucleusEccentricity)
+hopskel2 <- c(hopskel2, hopskel(epitheliod))
+#epitheliod$marks <- epitheliod$marks$nucleusCircularity
+#nnmean2 <- rbind(nnmean2,nnmean(epitheliod)[2,c(5,6,7,8,9,10)]) 
+#nnvario2 <- rbind(nnvario2,nnvario(epitheliod)[2,c(5,6,7,8,9,10)])
+#nncorr2 <- rbind(nncorr2, nncorr(epitheliod)[3])
+a <- pcf(epitheliod,r = seq(0,50))
+a$iso[1] <- 0
+#pcf_auc2 <- c(pcf_auc2, DescTools::AUC(x = seq(0,50),y=a$iso))
+pcf_vals2 <- rbind(pcf_vals2,a$iso)
+#G_vals2 <- rbind(G_vals2,b$rs) 
+b <- markcorr(subset(epitheliod,select = "nucleusArea"),r=0:25)$iso
+mark_corr_vals2 <- rbind(mark_corr_vals2,b) 
+c <- Emark(subset(epitheliod,select = "nucleusArea"),r=0:25)$iso
+Emark_vals2 <- rbind(Emark_vals2,c)
+}
+
+pcf_vals2 <- as.data.frame(pcf_vals2)
+```
+
+```{r}
+library(ggpubr)
+
+#boxplots for summary stats
+t.test(nndisttot1,nndisttot2)
+temp_df <- c(nndisttot1,nndisttot2)
+nndisttot <- data.frame(nndisttot = temp_df, class = c(rep("LT",length(nndisttot1)),rep("ST",length(nndisttot2))))
+p1 <- ggboxplot(nndisttot, x = "class", y = "nndisttot", short.panel.labs = FALSE,outlier.shape = NA,ylim=c(0,20)) + stat_compare_means()
+p1
+
+temp_df <- c(hopskel1,hopskel2)
+hopskel <- data.frame(hopskel = temp_df, class = c(rep("LT",length(hopskel1)),rep("ST",length(hopskel2))))
+p1 <- ggboxplot(hopskel, x = "class", y = "hopskel", short.panel.labs = FALSE,outlier.shape = NA) + stat_compare_means()
+p1
+
+temp_df <- c(weighted_intensity1,weighted_intensity2)
+weighted_intensity <- data.frame(weighted_intensity = temp_df, class = c(rep("LT",length(weighted_intensity1)),rep("ST",length(weighted_intensity2))))
+p1 <- ggboxplot(weighted_intensity, x = "class", y = "weighted_intensity", short.panel.labs = FALSE,outlier.shape = NA) + stat_compare_means()
+p1
+
+
+p2 <- ggplot(data=nucleasArea, aes(x=nucleasArea, group=class, fill=class)) +
+    geom_density(adjust=1.5, alpha=.4)+xlim(0,100) 
+
+p2 <- ggplot(data=nucleusCircularity, aes(x=nucleusCircularity, group=class, fill=class)) +
+    geom_density(adjust=1.5, alpha=.4)
+
+
+temp_df <- c(nucleasArea1,nucleasArea2)
+nucleasArea <- data.frame(nucleasArea = temp_df, class = c(rep("LT",length(nucleasArea1)),rep("ST",length(nucleasArea2))))
+p1 <- ggboxplot(nucleasArea, x = "class", y = "nucleasArea", short.panel.labs = FALSE,outlier.shape = NA,ylim=c(0,75)) + stat_compare_means(label.y = 60)
+p1
+mean(nucleasArea2)
+
+temp_df <- c(nucleusEccentricity1,nucleusEccentricity2)
+nucleusEccentricity <- data.frame(nucleusEccentricity = temp_df, class = c(rep("LT",length(nucleusEccentricity1)),rep("ST",length(nucleusEccentricity2))))
+p1 <- ggboxplot(nucleusEccentricity, x = "class", y = "nucleusEccentricity", short.panel.labs = FALSE,outlier.shape = NA) + stat_compare_means()
+p1
+
+
+temp_df <- c(nucleusCircularity1,nucleusCircularity2)
+nucleusCircularity <- data.frame(nucleusCircularity = temp_df, class = c(rep("LT",length(nucleusCircularity1)),rep("ST",length(nucleusCircularity2))))
+p1 <- ggboxplot(nucleusCircularity, x = "class", y = "nucleusCircularity", short.panel.labs = FALSE,outlier.shape = NA) + stat_compare_means()
+p1
+
+
+temp_df <- c(nucleusMinCaliper1,nucleusMinCaliper2)
+nucleusMinCaliper <- data.frame(nucleusMinCaliper = temp_df, class = c(rep("LT",length(nucleusMinCaliper1)),rep("ST",length(nucleusMinCaliper2))))
+p1 <- ggboxplot(nucleusMinCaliper, x = "class", y = "nucleusMinCaliper", short.panel.labs = FALSE,outlier.shape = NA) + stat_compare_means()
+p1
+
+
+temp_df <- c(nucleusMaxCaliper1,nucleusMaxCaliper2)
+nucleusMaxCaliper <- data.frame(nucleusMaxCaliper = temp_df, class = c(rep("LT",length(nucleusMaxCaliper1)),rep("ST",length(nucleusMaxCaliper2))))
+p1 <- ggboxplot(nucleusMaxCaliper, x = "class", y = "nucleusMaxCaliper", short.panel.labs = FALSE,outlier.shape = NA) + stat_compare_means()
+p1
+
+temp_df <- c(nnmean1[,2],nnmean2[,2])
+nnmean <- data.frame(nnmean_nucarea = temp_df, class = c(rep("LT",length(nnmean1[,2])),rep("ST",length(nnmean2[,2]))))
+p1 <- ggboxplot(nnmean, x = "class", y = "nnmean_nucarea", short.panel.labs = FALSE,outlier.shape = NA) + stat_compare_means()
+p1
+
+
+temp_df <- c(nnvario1[,2],nnvario2[,2])
+nnvario <- data.frame(nnvario_nucarea = temp_df, class = c(rep("LT",length(nnvario1[,2])),rep("ST",length(nnvario2[,2]))))
+p1 <- ggboxplot(nnvario, x = "class", y = "nnvario_nucarea", short.panel.labs = FALSE,outlier.shape = NA) + stat_compare_means()
+p1
+
+
+wilcox.test(pcf_auc1,pcf_auc2)
+
+
+temp_df <- c(pcf_auc1,pcf_auc2)
+pcf_auc <- data.frame(pcf_auc = temp_df, class = c(rep("LT",length(pcf_auc1)),rep("ST",length(pcf_auc2))))
+p1 <- ggboxplot(pcf_auc, x = "class", y = "pcf_auc", short.panel.labs = FALSE,outlier.shape = NA,ylim=c(40,55)) + stat_compare_means(label.y = 52)
+p1
+
+
+p2 <- ggplot(data=pcf_auc, aes(x=pcf_auc, group=class, fill=class)) +
+    geom_density(adjust=1.5, alpha=.4)+xlim(40,60)
+
+
+p2 <- ggdensity(pcf_auc, x = "pcf_auc",
+   add = "median", rug = TRUE,
+   color = "class", fill = "class",
+   palette = c("#00AFBB", "#E7B800"),xlim=c(min(c(pcf_auc1,pcf_auc2)),60))
+
+
+
+mean(nucleusMaxCaliper2)
+```
+
+```{r}
+library(ggpubr)
+library(tidyr)
+library(reshape2)
+library(dplyr)
+
+comb_pcf <- rbind(pcf_vals1,pcf_vals2)
+comb_pcf <- cbind(comb_pcf, class = c(rep("LT",80),rep("ST",80)))
+
+
+colnames(comb_pcf) <- c(seq(0:50),"class")
+ comb_pcf <- comb_pcf[,c(8:19,"class")]
+comb_pcf <- melt(comb_pcf)
+ggline(comb_pcf, x = "variable", y = "value", add = "mean_se",
+          color = "class", palette = "jco",xlab = "r (microns)",ylab="g(r)")
+  stat_compare_means(aes(group = supp), label = "p.signif", 
+                     label.y = c(16, 25, 29))
+
+  
+  
+  
+  
+
+comb_pcf <- rbind((mark_corr_vals1),mark_corr_vals2)
+comb_pcf <- cbind(comb_pcf, class = c(rep("LT",80),rep("ST",80)))
+comb_pcf <- as.data.frame(comb_pcf)
+
+colnames(comb_pcf) <- c(seq(0:50),"class")
+rownames(comb_pcf) <- NULL
+ comb_pcf <- comb_pcf[,c(8:20,"class")]
+comb_pcf <- melt(comb_pcf,id.vars = "class",measure.vars = colnames(comb_pcf[,0:13]) ) 
+
+class(comb_pcf$value) <- "numeric"
+
+ggline(comb_pcf, x = "variable", y = "value", add = "mean_se",
+          color = "class", palette = "jco",xlab = "r (microns)",ylab="markcorr(r) - nucleus area")
+  stat_compare_means(aes(group = supp), label = "p.signif", 
+                     label.y = c(16, 25, 29))
+  
+```
+
+
+```{r}
+library("DescTools")
+
+boxplot(pcf_auc1,pcf_auc2)
+boxplot(nnmean2[,2],nnmean1[,2])
+boxplot(nncorr1,nncorr2)
+
+
+wilcox.test(nnvario1[,2],nnvario2[,2])
+
+wilcox.test(nnmean2[,2],nnmean1[,2])
+wilcox.test(nndisttot1,nndisttot2)
+
+rose(nnorient(epitheliod))
+a <- (nnorient(epitheliod))
+plot(unmark(epitheliod))
+
+
+nucArea <- epitheliod$marks$nucleusArea
+berman.test(epitheliod,nucArea)
+
+
+
+
+a <- pcf(epitheliod,r = seq(0,50))
+plot(a$iso)
+a$iso[1] <- 0
+pcf_auc1 <- DescTools::AUC(x = seq(0,50),y=a$iso)
+ 
+```
+
+```{r}
+library("reshape2")
+library(ggpubr)
+library(ggplot2)
+library("Hmisc")
+library(stats)
+library("Rmisc")
+Rmisc::CI(mean)
+G_vals_t <- t(G_vals1)
+G_vals_t <- as.data.frame(G_vals_t)
+ 
+
+mean <- apply(G_vals_t, MARGIN = 1, mean)
+ci_low <- apply(G_vals_t, MARGIN = 1, Rmisc::CI)[3,]
+ci_high <- apply(G_vals_t, MARGIN = 1, Rmisc::CI)[1,]
+
+pcf_vals_t <- cbind(r=seq(0,50), pcf_vals_t)
+pcf_vals_t$mean <- mean
+pcf_vals_t$ci_low <- ci_low
+pcf_vals_t$ci_high <- ci_high
+
+
+ggp <- ggplot(pcf_vals_t, aes(r, mean)) +geom_point()
+
+ggp+ geom_ribbon(aes(ymin = ci_low, ymax = ci_high), alpha = 0.2)+geom_smooth(span=0.1)
+
+library(ggplot2)
+G_df_LT <- as.data.frame(cbind(value = melt(G_vals1)$value,class = rep("LT",dim(melt(G_vals1))[1])))
+G_df_ST <- as.data.frame(cbind(value = melt(G_vals2)$value,class = rep("ST",dim(melt(G_vals1))[1])))
+
+combined_G_df <- rbind(G_df_LT,G_df_ST)
+class(combined_G_df$value) <- "numeric"
+ggplot(combined_G_df, aes(x = value, fill = class)) + geom_density(alpha = 0.5)+xlim(c(0.995,1))
+
+```
+```{r}
+library("reshape2")
+library(ggpubr)
+library(ggplot2)
+library("Hmisc")
+
+
+
+average_overclass_pcf_curve <- function(pcf_dat){   # turn this into a function that can find average curves for any function, pcf, G, F, etc. 
+pcf_vals_t <- t(pcf_dat)
+pcf_vals_t <- as.data.frame(pcf_vals_t)
+
+mean <- apply(pcf_vals_t, MARGIN = 1, mean)
+ci_low <- apply(G_vals_t, MARGIN = 1, Rmisc::CI)[3,]
+ci_high <- apply(G_vals_t, MARGIN = 1, Rmisc::CI)[1,]
+
+pcf_vals_t <- cbind(r=seq(0,50), pcf_vals_t)
+pcf_vals_t$mean <- mean
+pcf_vals_t$ci_low <- ci_low
+pcf_vals_t$ci_high <- ci_high
+new_df <- cbind(r=seq(0,50),mean=mean,low=ci_low,high=ci_high)
+return(as.data.frame(new_df))
+}
+
+G_val_LT <- as.data.frame(average_overclass_pcf_curve(G_vals1))
+G_val_ST<- as.data.frame(average_overclass_pcf_curve(G_vals2))
+
+
+combined_df <- cbind(rbind(G_val_LT1,G_val_LT),class=c(rep("LT",dim(G_val_LT1)[1]),rep("ST",dim(G_val_LT1)[1])))
+
+
+ggp1 <- ggplot(G_val_LT, mapping=aes(r,mean )) +  geom_point()+  # ggplot2 plot without confidence band
+   geom_ribbon(aes(ymin = low, ymax = high), alpha = 0.2)+g
+
++ geom_point(pcf_val_ST, mapping=aes(r,mean ))  
+
+
+
+ggplot()+geom_point(G_val_LT, mapping=aes(r,mean)) + geom_point(G_val_ST, mapping=aes(r,mean ))
++geom_point(G_val_LT, mapping=aes(r,high)) + geom_point(G_val_ST, mapping=aes(r,high )) +geom_point(G_val_LT, mapping=aes(r,low)) + geom_point(G_val_ST, mapping=aes(r,low ))  
+ 
+ggplot()+geom_point(pcf_val_LT, mapping=aes(r,mean)) + geom_point(pcf_val_ST, mapping=aes(r,mean ))
+
+
+
+library(ggplot2)
+
+# Create some fake data
+set.seed(1)
+df1 <- data.frame(x = rnorm(10, mean = 5, sd = 1), y = rnorm(10, mean = 5, sd = 1))
+df2 <- data.frame(x = rnorm(10, mean = 8, sd = 2), y = rnorm(10, mean = 8, sd = 2))
+
+# Plot the data using ggplot2
+ggplot(df1, aes(x, y)) + geom_point() + facet_wrap(~x)
+ggplot(df2, aes(x, y)) + geom_point() + facet_wrap(~x)
+```
+
+```{r}
+ M <- markcorr(epitheliod, function(m1,m2) {m1==m2},
+                  correction="translate", method="density",
+                  kernel="epanechnikov")
+plot(amarcine) 
+
+plot(amacrine)
+epitheliod$marks
+
+epitheliod$marks <- ifelse(epitheliod$marks$nucleusArea > median(epitheliod$marks$nucleusArea), "high", "low")
+
+
+M <- markcorr(epitheliod, function(m1,m2) {m1*m2},
+                  correction="translate", method="density",
+                  kernel="epanechnikov")
+
+plot(epitheliod)
+m <- marks(epitheliod)
+n <- nnwhich(epitheliod)
+m1 <- m[n]
+table(m, m1)
+chisq.test(table(m, m1))
+markstat(epitheliod)
+nncorr(epitheliod,function(m1,m2) {m1==m2})
+ma <- markconnect(epitheliod, "high", "low")
+plot(alltypes(epitheliod, markconnect))
+epitheliod$marks <- as.factor(epitheliod$marks)
+length((epitheliod$marks)[epitheliod$marks=="high"])
+
+
+
+```
+
+```{r}
+library(spatstat)
+epitheliod$marks
+m <- clarkevans.test(epitheliod)
+m$statistic
+homtest(epitheliod)
+nnmean(epitheliod)[2,c(5,6,7,8,9,10)]
+nnvario(epitheliod)[2,c(5,6,7,8,9,10)]
+
+rpoispp(lambda=0.2,)
+
+
+df <- expand.grid(r=seq(1, 50, by=1), sat=c(1,2))
+pG <- profilepl(df, Strauss, unmark(epitheliod) ~ 1, correction="translate", aic=TRUE)
+as.ppm(pG)
+
+for(i in 1:length(RDSFiles)){
+setwd(url2)
+  epitheliod <- readRDS(RDSFiles[i])
+  epitheliod$window$xrange
+}
+epithel
+plot(spatstat.data::spruces)
+plot((spruces))
+
+epitheliod$marks
+plot(subset(epitheliod,select = "nucleusArea"),r=0:50)
+plot(markcorr(subset(epitheliod,select = "nucleusArea"),r=0:50))
+envelope(subset(epitheliod,select = "nucleusArea"), markcorr, nsim=10,
+simulate=expression(rlabel(subset(epitheliod,select = "nucleusArea"))))
+hi
+
+
+markcorr(subset(epitheliod,select = "nucleusArea"),r=0:50)$iso
+markvario(subset(epitheliod,select = "nucleusArea"),r=0:50)$iso
+plot(markvario(subset(epitheliod,select = "nucleusArea"),r=0:50))
+
+boxplot(nucleasArea2)
+max(nucleasArea2)
+plot(markcorr(subset(epitheliod,select = "nucleusArea"),r=0:50))
+plot(Emark(subset(epitheliod,select = "nucleusArea"),r=0:50))
+
+
+```
+
+ 
+ 
