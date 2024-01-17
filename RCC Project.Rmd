@@ -1,0 +1,482 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+
+
+
+#THIS IS THE ELLIPSE HULL PICTORAL REPRESENTATION - Shows a convex hull represnation of the data points as a point process plot
+install.packages("spatstat")
+install.packages("alphahull")
+install.packages("ellipsis")
+install.packages("cluster")
+install.packages("fs")
+install.packages("writexl")
+install.packages("gtsummary")
+library(writexl)
+library(dplyr)
+library(gtsummary)
+setwd("C:/Users/mathf/Downloads/")
+data <- read.csv('TCGA clinical mutation methylation data - Table S1 Clinical-Genetic Data.csv') %>% filter(bcr_patient_barcode != "")
+M1 <- data %>% filter(pathologic_M %in% c("M1"),bcr_patient_barcode != "",neoplasm_histologic_grade %in% c("G2","G3"),PanKidney.Pathology=="ccRCC") %>% select(bcr_patient_barcode,pathologic_M,"neoplasm_histologic_grade",vital_status,Survival,purity,pathologic_stage,gender)
+
+setwd("C:/Users/mathf/Downloads/")
+
+set.seed(123)
+M0_G3 <- data %>% filter(pathologic_M %in% c("M0"),PanKidney.Pathology=="ccRCC",neoplasm_histologic_grade %in% c("G3")) %>% select(bcr_patient_barcode,pathologic_M,"neoplasm_histologic_grade",vital_status,Survival,purity,pathologic_stage,gender)
+M0_sample_G3 <- sample_n(M0_G3,size = nrow(M1%>%filter(neoplasm_histologic_grade=="G3")))
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+  install.packages("BiocManager")
+}
+
+set.seed(123)
+
+M0_G2 <- data %>% filter(pathologic_M %in% c("M0"),PanKidney.Pathology=="ccRCC",neoplasm_histologic_grade %in% c("G2")) %>% select(bcr_patient_barcode,pathologic_M,"neoplasm_histologic_grade",vital_status,Survival,purity,pathologic_stage,gender)
+M0_sample_G2 <- sample_n(M0_G2,size = nrow(M1%>%filter(neoplasm_histologic_grade=="G2")))
+
+M0_sample <- rbind(M0_sample_G2,M0_sample_G3)
+
+
+total_patient_demographics <- rbind(M0_sample,M1)
+which(grepl(geojson_files[1],total_patient_demographics$bcr_patient_barcode))
+
+setwd("C:/Users/mathf/Downloads/")
+clinical <- gtsummary::tbl_summary(total_patient_demographics,include=c("gender","pathologic_M","neoplasm_histologic_grade","vital_status"))
+
+
+
+
+setwd("C:/Users/mathf/Downloads/")
+
+write_xlsx(M1,path = "C:/Users/mathf/Downloads/TCGA_M_Data.xlsx" )
+write_xlsx(M0_sample,path = "C:/Users/mathf/Downloads/TCGA_M0_Data.xlsx" )
+
+
+
+```
+
+
+
+
+```{r}
+
+
+setwd('C:/Users/mathf/Downloads')
+M_data<- (readxl::read_xlsx("TCGA_M_Data.xlsx"))
+M0_data <- (readxl::read_xlsx("TCGA_M0_Data.xlsx"))
+M_id <- M_data$bcr_patient_barcode
+M0_id <- M0_data$bcr_patient_barcode
+
+library(geojsonio)
+library(spatstat)
+library(alphahull)
+library(sf)
+library(reshape2)
+library(ggpubr)
+library(dplyr)
+library(factoextra)
+library(cluster)
+library()
+# Set working directory and read GeoJSON file
+setwd("C:/Users/mathf/Downloads/geojson")
+geojson_files <-list.files('C:/Users/mathf/Downloads/geojson/')
+setwd("C:/Users/mathf/Downloads/annotation results")
+detection_files <- list.files('C:/Users/mathf/Downloads/annotation results/')
+
+
+metastasis_status <- c()
+
+for(i in M_id){
+metastasis_status <- c(metastasis_status, c(which(grepl(i,detection_files))))
+}
+
+
+#matches <- sapply(string_list, function(str) grepl(substring, str))
+
+nndist <- c()
+pair_correlation <- c()
+pair_correlation_inhom <- c()
+G_fun <- c()
+hopskel_stat <- c()
+rr <- data.frame(r=seq(20,50,by=0.2))
+r <- c()
+gamma <- c()
+for(file in 1:length(geojson_files)){
+setwd("C:/Users/mathf/Downloads/geojson")
+
+  
+
+geojson_data <- geojson_read(geojson_files[file],what="list")
+setwd("C:/Users/mathf/Downloads/annotation results")
+
+point_data <- read.delim(detection_files[file])
+if(dim(matrix(unlist(geojson_data$features[[1]]$geometry$coordinates),ncol=2))[1]> 5){
+holes_list <- list()
+for( i in 1:length(geojson_data$features[[1]]$geometry$coordinates)){
+  inner <- geojson_data$features[[1]]$geometry$coordinates[[i]]
+  clean_matrix1 <- (matrix(unlist(inner), ncol = 2, byrow = TRUE))
+  clean_matrix1 <- clean_matrix1[nrow(clean_matrix1):1, ]
+  holes_list[[i]] <- clean_matrix1
+  
+
+}
+
+for (i in 1:length(holes_list)) {
+  matrix_data <- holes_list[[i]]
+  list_data <- list(x = matrix_data[, 1], y = matrix_data[, 2])
+  holes_list[[i]] <- list_data
+}
+ZH4 <- owin(poly=holes_list)
+#plot(ZH4,main=geojson_files[file])
+setwd("C:/Users/mathf/Downloads/annotation results")
+tumor_endothelial_process <- ppp(point_data$Centroid.X.µm, point_data$Centroid.Y.µm,window = ZH4,marks = as.factor(point_data$Class))
+split_process <- split(tumor_endothelial_process)
+plot(split_process$Tumor,main=geojson_files[file])
+pcf_ppp <- pcf(split_process$Tumor,r = seq(0,50,by=0.1),correction = "trans",measure =  "d")
+pair_correlation <- rbind(pair_correlation,pcf_ppp$trans)
+#pcf_inhom_ppp <- pcfinhom(split_process$Tumor,r = seq(0,50,0.1),correction = 'trans')
+#pair_correlation_inhom <- rbind(pair_correlation_inhom,pcf_inhom_ppp$trans)
+#G <- Kest(split_process$Tumor,r = seq(0,25,0.1),correction = "km")
+#G_fun <- rbind(G_fun,G$km)
+hopskel_stat <- c(hopskel_stat,hopskel(split_process$Tumor))
+
+if(substr(geojson_files[file],1,12)%in% M0_id){
+saveRDS(split_process$Tumor,file=paste("C:/Users/mathf/Downloads/No Metastasis/",geojson_files[file],".rds"))
+}else{
+saveRDS(split_process$Tumor,file=paste("C:/Users/mathf/Downloads/Metastasis/",geojson_files[file],".rds"))
+  
+}
+
+
+
+
+}else{
+   inner <- geojson_data$features[[1]]$geometry$coordinates
+   clean_matrix2 <- (matrix(unlist(inner), ncol = 2, byrow = TRUE))
+    #clean_matrix2 <- clean_matrix2[nrow(clean_matrix2):1, ]
+    ZH4 <- owin(poly=holes_list)
+#plot(ZH4,main=geojson_files[file])
+setwd("C:/Users/mathf/Downloads/annotation results")
+tumor_endothelial_process <- ppp(point_data$Centroid.X.µm, point_data$Centroid.Y.µm,window = ZH4,marks = as.factor(point_data$Class))
+split_process <- split(tumor_endothelial_process)
+plot(split_process$Tumor,main=geojson_files[file])
+pcf_ppp <- pcf(split_process$Tumor,r = seq(0,50,by=0.1),correction = "trans",measure = "d")
+pair_correlation <- rbind(pair_correlation,pcf_ppp$trans)
+#pcf_inhom_ppp <- pcfinhom(split_process$Tumor,r = seq(0,50,0.1),measure = "b",correction = "trans")
+#pair_correlation_inhom <- rbind(pair_correlation_inhom,pcf_inhom_ppp$trans)
+#G <- Fest(split_process$Tumor,r = seq(0,25,0.1),correction="km")
+#G_fun <- rbind(G_fun,G$km)
+hopskel_stat <- c(hopskel_stat,hopskel(split_process$Tumor))
+if(substr(geojson_files[file],1,12)%in% M0_id){
+saveRDS(split_process$Tumor,file=paste("C:/Users/mathf/Downloads/No Metastasis/",geojson_files[file],".rds"))
+}else{
+saveRDS(split_process$Tumor,file=paste("C:/Users/mathf/Downloads/Metastasis/",geojson_files[file],".rds"))
+  
+
+
+
+
+
+
+df <- as.data.frame(pair_correlation)
+df$metastasis <- 0 
+df$metastasis[metastasis_status] <- 1
+colnames(df) <- c(seq(0,50,by=0.1),"metastasis")
+
+
+
+
+df1 <- df[, -which(names(df) == "metastasis")]
+
+df1 <- df1[,-1]
+adjusted_df <- ((df1))
+
+adjusted_df1 <- adjusted_df[, colSums(is.na(adjusted_df)) != nrow(adjusted_df)]
+
+
+
+
+
+num_rows <- nrow(adjusted_df1)
+num_averaged_rows <- num_rows %/% 3
+
+averaged_df <- data.frame(matrix(0, nrow = num_averaged_rows, ncol = ncol(adjusted_df1)))
+
+for (i in 1:num_averaged_rows) {
+  start_row <- (i - 1) * 3 + 1
+  end_row <- i * 3
+  averaged_df[i,] <- colMeans(adjusted_df1[start_row:end_row, ])
+}
+
+colnames(averaged_df) <- colnames(adjusted_df1)
+
+averaged_df$metastasis
+
+
+
+
+#combined <- cbind(t(adhesion_genes_only_matrix),averaged_df[-4,])
+
+
+
+averaged_df_1 <- averaged_df[,400:500]
+fviz_nbclust(scale(averaged_df_1), kmeans,method = "silhouette")
+
+rownames(averaged_df_1) <- NULL
+km <- kmeans(scale(averaged_df_1), centers = 2, nstart = 25)
+km
+fviz_cluster(km, data = scale(averaged_df_1))
+
+
+
+df <- as.data.frame(averaged_df)
+df$cluster <- km$cluster
+colnames(df) <- c(seq(0.1,50,by=0.1),"cluster")
+
+adjusted_df_melt <- melt(df,id.vars = c("cluster"))
+
+adjusted_df_melt$cluster <- as.factor(adjusted_df_melt$cluster)
+
+
+
+
+
+
+averaged_df$cluster <- km$cluster
+contingency_table <- table(df_random$metastasis,km$cluster)
+chisq.test(contingency_table)
+
+
+
+
+adjusted_df_melt <- melt(averaged_df,id.vars = "cluster")
+
+adjusted_df_melt$cluster <- as.factor(adjusted_df_melt$cluster)
+
+
+adjusted_df_melt <- adjusted_df_melt %>%  filter(variable %in% as.factor(seq(5,50,by=0.5)))
+adjusted_df_melt$value <- as.numeric(adjusted_df_melt$value)
+setwd("C:/Users/mathf/Downloads/")
+pdf("pcf.pdf")
+fig <- ggline(adjusted_df_melt, x = "variable", y = "value", add = c("mean_ci"),
+          color = "cluster",xlab = "r (microns)",ylab="Pair Correlation g(r)") +   theme(axis.text.x = element_text(size = 8,angle = 45)) 
+dev.off()
+
+
+```
+
+
+```{r}
+#Genome Analaysis
+
+
+
+library(TCGAbiolinks)
+library(BiocManager)
+#install.packages("SummarizedExperiment")
+library(SummarizedExperiment)
+library(BEclear)
+setwd("C:/Users/mathf/Downloads")
+if (!requireNamespace("BiocManager", quietly = TRUE)) {
+  install.packages("BiocManager")
+}
+BiocManager::install("SummarizedExperiment")
+BiocManager::install("EDASeq")
+library(EDASeq)
+library(writexl)
+library(dplyr)
+library(gtsummary)
+library(readr)
+sink()
+setwd("C:/Users/mathf/Downloads/")
+all_data <- read.csv('TCGA clinical mutation methylation data - Table S1 Clinical-Genetic Data.csv') %>% filter(PanKidney.Pathology
+== "ccRCC",nchar(bcr_patient_barcode)==12)
+
+
+query.exp.hg38 <- GDCquery(
+    project = "TCGA-KIRC", 
+    data.category = "Transcriptome Profiling", 
+    #experimental.strategy  = "RNA-Seq", 
+    data.type = "Gene Expression Quantification", 
+    #workflow.type = "STAR - Counts",
+    access = "open",
+    sample.type = 'Primary Tumor',
+    barcode = all_data$bcr_patient_barcode
+)
+
+GDCdownload(query.exp.hg38)
+expdat <- GDCprepare(
+    query = query.exp.hg38,
+    save = TRUE, 
+    save.filename = "exp.rda",
+    summarizedExperiment = T
+)
+
+
+BRCAMatrix <- assay(expdat,"unstranded") 
+row.names(BRCAMatrix)
+BRCA.RNAseq_CorOutliers <- TCGAanalyze_Preprocessing(expdat)
+
+dataNorm <- TCGAanalyze_Normalization(
+    tabDF = BRCA.RNAseq_CorOutliers, 
+    geneInfo =  geneInfoHT
+)
+
+dataFilt <- TCGAanalyze_Filtering(
+    tabDF = dataNorm,
+    method = "quantile", 
+    qnt.cut =  0.25)
+
+
+
+batch_info <- read_tsv("C:/Users/mathf/Downloads/23d76b133ec73f15c1729aa555d57d08-data/original/batches.tsv")
+batches <- batch_info %>% filter(aliquot_barcode %in% colnames(dataFilt)) %>% mutate(year = as.integer(format(ship_date
+,"%Y")))
+
+
+colnames(dataFilt) <- NULL
+rownames(dataFilt) <- NULL
+dataFilt <- t(dataFilt)
+
+PCA <- prcomp(dataFilt,scale. = T)
+
+pca_plot_df <- cbind(PC1 = PCA$x[,1],PC2 = PCA$x[,2],batch = batches$year)
+plot(pca_plot_df[,1],pca_plot_df[,2],col=pca_plot_df[,3])
+abline(h = 0, lty = 2, col = "gray")
+
+# Add vertical dashed line through origin
+abline(v = 0, lty = 2, col = "gray")
+
+dataFilt <- TCGAanalyze_Filtering(
+    tabDF = dataNorm,
+    method = "quantile", 
+    qnt.cut =  0.25)
+
+
+log_expression_matrix <- log2(dataFilt + 1)
+
+#BiocManager::install("limma")
+library(limma)
+
+batch_removed <- removeBatchEffect(log_expression_matrix,batch = batches$year)
+
+colnames(batch_removed) <- NULL
+rownames(batch_removed) <- NULL
+a <- t(batch_removed)
+
+
+
+PCA <- prcomp(a,scale. = T)
+
+pca_plot_df <- cbind(PC1 = PCA$x[,1],PC2 = PCA$x[,2],batch = batches$tissue_source_site)
+
+plot(pca_plot_df[,1],pca_plot_df[,2],col=as.factor((pca_plot_df[,3])))
+abline(h = 0, lty = 2, col = "gray")
+
+# Add vertical dashed line through origin
+abline(v = 0, lty = 2, col = "gray")
+
+legend(2, 4, legend=c("Equation 1", "Equation 2")
+)
+
+
+
+batch_removed <- removeBatchEffect(log_expression_matrix,batch = batches$year)
+
+colnames(batch_removed) <-substr(colnames(batch_removed),start = 1,stop = 12)
+
+
+head(rownames(batch_removed))
+gene_names <- data.frame(SummarizedExperiment::rowData(expdat))
+ensembl_to_geneid <- gene_names %>% select(gene_id,gene_name)
+
+ensembl_to_geneid$gene_id <- substr(ensembl_to_geneid$gene_id,start = 1,stop = 15)
+
+
+cluster_1 <- which(survival_df$cluster==1)
+cluster_2 <- which(survival_df$cluster==2)
+
+
+
+cluster_1_ids <- which(substr(colnames(dataFilt),start = 1,stop = 12) %in% ids[cluster_1])
+cluster_2_ids <- which(substr(colnames(dataFilt),start = 1,stop = 12) %in% ids[cluster_2])
+
+
+cluster_ds <- data.frame(cluster_1 = cluster_1_ids, cluster_2 = cluster_2_ids )
+colnames(batch_corrected_gene_expression_sample)
+(matching_indices) <- NULL
+
+
+
+
+
+gene_expression_mat <- batch_removed[,c(cluster_1_ids,cluster_2_ids)]
+
+
+dataDEGs <- TCGAanalyze_DEA(
+    mat1 = exp(batch_removed)[,cluster_1_ids],
+    mat2 = exp(batch_removed)[,cluster_2_ids],
+    Cond1type = "Normal",
+    Cond2type = "Tumor",
+    fdr.cut = 0.01 ,
+    logFC.cut = 1,
+    method = "glmLRT"
+    
+)
+
+
+
+dataDEGsFiltLevel <- TCGAanalyze_LevelTab(
+    FC_FDR_table_mRNA = dataDEGs,
+    typeCond1 = "Cluster 1",
+    typeCond2 = "Cluster 2",
+    TableCond1 = exp(log_expression_matrix)[,cluster_1_ids],
+    TableCond2 = exp(log_expression_matrix)[,cluster_2_ids]
+)
+
+
+
+write_xlsx(dataDEGsFiltLevel,path = "C:/Users/mathf/Downloads/DEGS.xlsx")
+
+ensemblid_to_geneid <- readxl::read_xlsx("C:/Users/mathf/Downloads/idmap.xlsx")[c(1,4)]
+non_lnc_RNA_genes_only <- ensemblid_to_geneid %>% filter(symbol != "NA")
+
+
+coding_rna_symbols_df <- dataDEGsFiltLevel %>% filter(mRNA %in% non_lnc_RNA_genes_only$query)
+
+colnames(non_lnc_RNA_genes_only)[1] <- "mRNA" 
+
+genes_list <- merge(non_lnc_RNA_genes_only,coding_rna_symbols_df,"mRNA")[,-1]
+
+write_xlsx(genes_list,path = "C:/Users/mathf/Downloads/DEGS_with_gene_symbol.xlsx")
+
+colnames(genes_list)[1] <- "mRNA" 
+rownames(dataDEGsFiltLevel)
+Genelist <- genes_list$mRNA
+TCGA
+ansEA <- TCGAanalyze_EAcomplete(
+    TFname = "DEA genes Normal Vs Tumor",
+    RegulonList = Genelist
+)
+rownames(ansEA$ResBP)
+# Enrichment Analysis EA (TCGAVisualize)
+# Gene Ontology (GO) and Pathway enrichment barPlot
+
+TCGAvisualize_EAbarplot(
+    tf = rownames(ansEA$ResBP), 
+    GOBPTab = ansEA$ResBP[1,],
+    GOCCTab = ansEA$ResCC[1,],
+    GOMFTab = ansEA$ResMF[1,],
+    PathTab = ansEA$ResPat[1,],
+    nRGTab = Genelist, 
+    nBar = 10
+)
+
+write.csv(dataDEGsFiltLevel$mRNA,"C:/Users/mathf/Downloads/gene_ids_sig.csv")
+
+
+```
+
